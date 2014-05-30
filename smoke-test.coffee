@@ -30,15 +30,6 @@ tags.push('travis') if env.TRAVIS
 tags.push('drone') if env.DRONE
 tags.push(env.CI_NAME) if env.CI_NAME
 
-browser = wd.remote('ondemand.saucelabs.com', 80, sauceUser, sauceKey)
-
-browser.on 'status', (info) ->
-  console.log(chalk.cyan(info))
-browser.on 'command', (meth, path) ->
-  console.log(' > %s: %s', chalk.yellow(meth), path)
-#browser.on 'http', (meth, path, data) ->
-#  console.log(' > %s %s %s', chalk.magenta(meth), path, chalk.grey(data))
-
 desired = {
   browserName: 'internet explorer'
   version: '8'
@@ -46,51 +37,68 @@ desired = {
   name: 'smoke test'
   build: "#{buildUrl} commit #{commit}"
   tags: tags
-  # Most my tests timeout a lot due crashing without cleanup (see below);
-  # this will waste less Sauce resources than default 90s.
+  # Waste less Sauce resources than default 90s.
   'idle-timeout': 30
 }
 
-# TODO: Cleanup even if there were errors.  Use promises for sanity?
-#  Use a test runner with guaranteed pre/post methods?
-
-test = (cb) ->
+it 'add', (done) ->
+  assert.equal(2+2, 4)
+it 'should load and render math', (done) ->
   # Kludge: set to failed first, change to passed if we get to the end without crashing.
-  browser.sauceJobStatus false, ->
-    browser.get 'http://localhost:8000/?doc=_mathdown_test_smoke', (err) ->
+  @browser.sauceJobStatus false, ->
+    @browser.get 'http://localhost:8000/?doc=_mathdown_test_smoke', (err) ->
       assert.ifError(err)
-      browser.waitFor wd.asserters.jsCondition('document.title.match(/smoke test/)'), 10000, (err, value) ->
+      @browser.waitFor wd.asserters.jsCondition('document.title.match(/smoke test/)'), 10000, (err, value) ->
         assert.ifError(err)
-        browser.waitForElementByCss '.MathJax_Display', 15000, (err, el) ->
+        @browser.waitForElementByCss '.MathJax_Display', 15000, (err, el) ->
           assert.ifError(err)
           el.text (err, text) ->
             assert.ifError(err)
             if not text.match(/^\s*α\s*$/)
               assert.fail(text, '/^\s*α\s*$/', 'math text is wrong', ' match ')
             console.log(chalk.green('ALL PASSED'))
-            browser.sauceJobStatus(true)
-            cb()
+            @browser.sauceJobStatus(true)
+            done()
 
-server = http.createServer(st({
-  path: process.cwd()
-  index: 'index.html'
-}))
-server.on 'request', (req, res) ->
-  console.log(' < %s %s', chalk.green(req.method), req.url)
-server.listen(8000)
-console.log('Server up, e.g. http://localhost:8000/?doc=_mathdown_test_smoke')
+before (done) ->
+  @server = http.createServer(st({
+    path: process.cwd()
+    index: 'index.html'
+  }))
+  @server.on 'request', (req, res) ->
+    console.log(' < %s %s', chalk.green(req.method), req.url)
+  @server.listen(8000)
+  console.log('Server up, e.g. http://localhost:8000/?doc=_mathdown_test_smoke')
+  done()
 
-tunnel = new sauceTunnel(sauceUser, sauceKey, tunnelId, true, ['--verbose'])
-console.log('Creating tunnel...')
-tunnel.start (status) ->
-  assert(status, 'tunnel creation failed')
-  console.log('tunnel created')
-  desired['tunnel-identifier'] = tunnel.identifier
+after (done) ->
+  @server.close(done)
+
+before (done) ->
+  @timeout(0)
+  @tunnel = new sauceTunnel(sauceUser, sauceKey, tunnelId, true, ['--verbose'])
+  console.log('Creating tunnel...')
+  @tunnel.start (status) ->
+    assert(status, 'tunnel creation failed')
+    console.log('tunnel created')
+    done()
+
+after (done) ->
+  @tunnel.stop done
+
+beforeEach (done) ->
+  desired['tunnel-identifier'] = @tunnel.identifier  # TODO
   console.log(desired)
-  browser.init desired, (err) ->
-    assert.ifError(err)
-    test ->
-      browser.quit()
-      server.close()
-      tunnel.stop ->
-        console.log(chalk.green('Cleaned up.'))
+  @browser = wd.remote('ondemand.saucelabs.com', 80, sauceUser, sauceKey)
+
+  @browser.on 'status', (info) ->
+    console.log(chalk.cyan(info))
+  @browser.on 'command', (meth, path) ->
+    console.log(' > %s: %s', chalk.yellow(meth), path)
+  #@browser.on 'http', (meth, path, data) ->
+  #  console.log(' > %s %s %s', chalk.magenta(meth), path, chalk.grey(data))
+
+  @browser.init desired, done
+
+afterEach (done) ->
+  @browser.quit()

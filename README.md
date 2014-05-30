@@ -30,7 +30,7 @@ Dependencies:
 
 ## Git trivia
 
-After checking out, run this to materialize subdirs://
+After checking out, run this to materialize subdirs:
 
     git submodule update --init --recursive
 
